@@ -1,0 +1,1050 @@
+substitutions:
+  device_name: control-panel-1
+  friendly_name: Control Panel 1
+
+esphome:
+  name: $device_name
+  friendly_name: $friendly_name
+  platformio_options:
+    build_flags: "-DBOARD_HAS_PSRAM"
+    board_build.arduino.memory_type: qio_opi
+    board_build.flash_mode: dio
+  on_boot:
+    - light.turn_on: display_backlight
+    - delay: 5s
+    - lvgl.widget.hide: boot_screen
+
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  framework:
+    type: esp-idf
+    sdkconfig_options:
+      CONFIG_ESP32S3_DEFAULT_CPU_FREQ_240: y
+      CONFIG_ESP32S3_DATA_CACHE_64KB: y
+      CONFIG_SPIRAM_FETCH_INSTRUCTIONS: y
+      CONFIG_SPIRAM_RODATA: y
+
+debug:
+  update_interval: 15s
+
+# Enable logging
+logger:
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: !secret api_encryption_key
+  on_client_connected:
+    - if:
+        condition:
+          lambda: 'return (0 == client_info.find("Home Assistant "));'
+        then:
+          - lvgl.widget.show: lbl_hastatus
+  on_client_disconnected:
+    - if:
+        condition:
+          lambda: 'return (0 == client_info.find("Home Assistant "));'
+        then:
+          - lvgl.widget.hide: lbl_hastatus
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "Control-Panel-1 Fallback Hotspot"
+    password: "iaceqdA5xy1w"
+
+captive_portal:
+
+
+# Set up global variables
+globals:
+  - id: wifi_iconstring
+    type: std::string
+    restore_value: no
+    initial_value: '"󰤮"'
+  - id: recent_touch
+    type: bool
+    restore_value: no
+    initial_value: "true"
+  - id: screen_timer
+    type: int
+    restore_value: false
+    initial_value: '0'
+
+
+# Create an ESPHome logo image
+image:
+  - file: "images/esphome.png"
+    id: esphome_image
+    type: RGB
+  - file: https://esphome.io/_static/favicon-512x512.png
+    id: boot_logo
+    resize: 200x200
+    type: RGB565
+    transparency: alpha_channel
+
+# Create time sensors
+time:
+  - platform: homeassistant
+    id: ha_time
+  - platform: sntp
+    id: sntp_time
+  - platform: homeassistant
+    id: time_comp
+    on_time_sync:
+      - script.execute: time_update
+    on_time:
+      - minutes: '*'
+        seconds: 0
+        then:
+          - script.execute: time_update
+      - hours: 2,3,4,5
+        minutes: 5
+        seconds: 0
+        then:
+          - switch.turn_on: switch_antiburn
+      - hours: 2,3,4,5
+        minutes: 35
+        seconds: 0
+        then:
+          - switch.turn_off: switch_antiburn
+
+font:
+  #https://pictogrammers.com/library/mdi/
+  - file: 'fonts/materialdesignicons-webfont.ttf'
+    id: mdi_large
+    size: 48
+    glyphs: [
+      "\U000F0BB3", # mdi:prev
+      "\U000F0BB1", # mdi:next
+      "\U000F07D2", # mdi:home
+      "\U000F16C7", # mdi:wifi
+      ]
+  - file: 'fonts/materialdesignicons-webfont.ttf'
+    id: mdi_medium
+    size: 24
+    glyphs: ["󰤮", "󰤫", "󰤟", "󰤢", "󰤥", "󰤨",
+      "\U000F0BB3", # mdi:prev
+      "\U000F0BB1", # mdi:next
+      "\U000F07D2", # mdi:home
+      "\U000F16C7", # mdi:wifi
+      ]
+  - file: 'fonts/Arimo-Regular.ttf'
+    id: arimo20
+    size: 20
+    glyphs: "<>!\"%()+=,-_.:°0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz"
+  - file: 'fonts/Arimo-Regular.ttf'
+    id: arimo24
+    size: 24
+    glyphs: "<>!\"%()+=,-_.:°0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz"
+  - file: "fonts/materialdesignicons-webfont.ttf"
+    id: icons_100
+    size: 100
+    bpp: 4
+    glyphs: [
+      "\U000F0594", # clear-night
+      "\U000F0590", # cloudy
+      "\U000F0F2F", # exceptional
+      "\U000F0591", # fog
+      "\U000F0592", # hail
+      "\U000F0593", # lightning
+      "\U000F067E", # lightning-rainy
+      "\U000F0595", # partlycloudy
+      "\U000F0596", # pouring
+      "\U000F0597", # rainy
+      "\U000F0598", # snowy
+      "\U000F067F", # snowy-rainy
+      "\U000F0599", # sunny
+      "\U000F059D", # windy
+      "\U000F059E", # windy-variant
+      "\U000F14E4", # sunny-off
+      ]
+  - file: "fonts/materialdesignicons-webfont.ttf"
+    id: mdi_42
+    size: 42
+    bpp: 4
+    glyphs: [
+      "\U000F0335", # mdi-lightbulb
+      "\U000F0336", # mdi-lightbulb-outline
+      "\U000F0045", # mdi-arrow-down
+      "\U000F005D", # mdi:arrow-up
+      "\U000F04DB", # mdi:stop
+      ]
+
+text:
+  - platform: lvgl
+    name: fr_cond_icon
+    widget: lbl_weather_forecast_condition_icon
+    mode: text
+  - platform: lvgl
+    name: fr_cond_name
+    widget: lbl_weather_forecast_condition_name
+    mode: text
+  - platform: lvgl
+    name: fr_tempap
+    widget: lbl_weather_forecast_tempap
+    mode: text
+  - platform: lvgl
+    name: fr_temphi
+    widget: lbl_weather_forecast_temphi
+    mode: text
+  - platform: lvgl
+    name: fr_templo
+    widget: lbl_weather_forecast_templo
+    mode: text
+  - platform: lvgl
+    name: wd_out_now
+    widget: lbl_weather_outdnoor_now
+    mode: text
+
+color:
+  - id: ha_gold
+    hex: f2c051
+  - id: aquamarina
+    hex: d1d59f
+  - id: blue_color
+    # Make use of `red: 100%` if using ILI9342
+    blue: 100%
+  - id: red_color
+    # Make use of `blue: 100%` if using ILI9342
+    red: 100%
+  - id: green_color
+    green: 100%
+  - id: yellow_color
+    hex: ffff00
+    # Create a Home Assistant blue color
+  - id: ha_blue
+    hex: 51c0f2
+
+
+
+web_server:
+  version: 3
+
+
+i2c:
+  sda: 8
+  scl: 4
+  id: touchscreen_bus
+  frequency: 400kHz
+
+#power_supply:
+#  id: backlight_id
+#  pin: 1
+#  enable_on_boot: true
+
+light:
+  - platform: binary
+    id: display_backlight
+    name: "Display Backlight"
+    output: backlight_pin
+
+output:
+  - platform: gpio
+    id: backlight_pin
+    pin: GPIO1
+
+spi:
+  id: display_qspi
+  type: quad
+  clk_pin: 47
+  data_pins: [21, 48, 40, 39] # 21=d0, 48=d1, 40=d2, 39=d3
+
+display:
+  - platform: qspi_dbi
+    model: CUSTOM # NV3041A
+    id: my_display
+    spi_id: display_qspi
+    #data_rate: 40MHz
+    dimensions:
+      height: 272
+      width: 480
+    cs_pin: 45
+    rotation: 180 
+    update_interval: never
+    auto_clear_enabled: false
+    show_test_card: false # must enable update_interval, auto_clear_enable
+    invert_colors: false
+
+
+
+lvgl:
+  displays:
+    - my_display
+  touchscreens:
+    - main_touchscreen
+  on_idle:
+    timeout: !lambda "return (id(display_timeout).state * 1000);"
+    then:
+      - logger.log: "LVGL is idle"
+      - light.turn_off: display_backlight
+      - lvgl.pause:
+  theme:
+    label:
+      text_font: arimo20 # set all your labels to use your custom defined font
+    button:
+      bg_color: 0x2F8CD8
+      bg_grad_color: 0x005782
+      bg_grad_dir: VER
+      bg_opa: COVER
+      border_color: 0x0077b3
+      border_width: 1
+      text_color: 0xFFFFFF
+      pressed: # set some button colors to be different in pressed state
+        bg_color: 0x006699
+        bg_grad_color: 0x00334d
+      checked: # set some button colors to be different in checked state
+        bg_color: 0x1d5f96
+        bg_grad_color: 0x03324A
+        text_color: 0xfff300
+    buttonmatrix:
+      bg_opa: TRANSP
+      border_color: 0x0077b3
+      border_width: 0
+      text_color: 0xFFFFFF
+      pad_all: 0
+      items: # set all your buttonmatrix buttons to use your custom defined styles and font
+        bg_color: 0x2F8CD8
+        bg_grad_color: 0x005782
+        bg_grad_dir: VER
+        bg_opa: COVER
+        border_color: 0x0077b3
+        border_width: 1
+        text_color: 0xFFFFFF
+        text_font: mdi_medium
+        pressed:
+          bg_color: 0x006699
+          bg_grad_color: 0x00334d
+        checked:
+          bg_color: 0x1d5f96
+          bg_grad_color: 0x03324A
+          text_color: 0x005580
+    switch:
+      bg_color: 0xC0C0C0
+      bg_grad_color: 0xb0b0b0
+      bg_grad_dir: VER
+      bg_opa: COVER
+      checked:
+        bg_color: 0x1d5f96
+        bg_grad_color: 0x03324A
+        bg_grad_dir: VER
+        bg_opa: COVER
+      knob:
+        bg_color: 0xFFFFFF
+        bg_grad_color: 0xC0C0C0
+        bg_grad_dir: VER
+        bg_opa: COVER
+    slider:
+      border_width: 1
+      border_opa: 15%
+      bg_color: 0xcccaca
+      bg_opa: 15%
+      indicator:
+        bg_color: 0x1d5f96
+        bg_grad_color: 0x03324A
+        bg_grad_dir: VER
+        bg_opa: COVER
+      knob:
+        bg_color: 0x2F8CD8
+        bg_grad_color: 0x005782
+        bg_grad_dir: VER
+        bg_opa: COVER
+        border_color: 0x0077b3
+        border_width: 1
+        text_color: 0xFFFFFF
+  style_definitions:
+    - id: header_footer
+      bg_color: 0x2F8CD8
+      bg_grad_color: 0x005782
+      bg_grad_dir: VER
+      bg_opa: COVER
+      border_opa: TRANSP
+      radius: 0
+      pad_all: 0
+      pad_row: 0
+      pad_column: 0
+      border_color: 0x0077b3
+      text_color: 0xFFFFFF
+      width: 100%
+      height: 30
+    - id: date_style
+      text_color: 0x808080 # Example: Gray color
+      #font: arimo12 # Assuming you have arimo12 defined in your font section
+      # text_align: CENTER # You can add other text properties here if needed      
+  top_layer:
+    widgets:
+      - label:
+          text: "\u000F16C7"
+          id: lbl_hastatus
+          hidden: true
+          align: top_right
+          x: -2
+          y: 7
+          text_align: right
+          text_color: 0xFFFFFF      
+      - buttonmatrix:
+          align: bottom_mid
+          styles: header_footer
+          pad_all: 0
+          outline_width: 0
+          id: top_layer
+          items:
+            styles: header_footer
+          rows:
+            - buttons:
+              - id: page_prev
+                text: "\U000F0BB3"
+                on_press:
+                  then:
+                    lvgl.page.previous:
+              - id: page_home
+                text: "\U000F07D2"
+                on_press:
+                  then:
+                    lvgl.page.show: main_page
+              - id: page_next
+                text: "\U000F0BB1"
+                on_press:
+                  then:
+                    lvgl.page.next:
+      # make sure it's the last one in this list as this is used for the boot screen:
+      - obj:
+          id: boot_screen
+          x: 0
+          y: 0
+          width: 100%
+          height: 100%
+          bg_color: 0xffffff
+          bg_opa: COVER
+          radius: 0
+          pad_all: 0
+          border_width: 0
+          widgets:
+            - image:
+                align: CENTER
+                src: boot_logo
+                y: -40
+            - spinner:
+                align: CENTER
+                y: 95
+                height: 50
+                width: 50
+                spin_time: 1s
+                arc_length: 60deg
+                arc_width: 8
+                indicator:
+                  arc_color: 0x18bcf2
+                  arc_width: 8
+          on_press:
+            - lvgl.widget.hide: boot_screen
+  pages:
+    - id: meter_page
+      widgets:
+        - meter:
+            align: CENTER
+            height: 180
+            width: 180
+            scales:
+              - range_from: -100 # scale for the needle value
+                range_to: 400
+                angle_range: 240
+                rotation: 150
+                indicators:
+                  - line:
+                      id: temperature_needle
+                      width: 2
+                      color: 0xFF0000
+                      r_mod: -4
+                  - tick_style:
+                      start_value: -10
+                      end_value: 40
+                      color_start: 0x0000bd
+                      color_end: 0xbd0000
+                      width: 1
+              - range_from: -10 # scale for the value labels
+                range_to: 40
+                angle_range: 240
+                rotation: 150
+                ticks:
+                  width: 1
+                  count: 51
+                  length: 10
+                  color: 0x000000
+                  major:
+                    stride: 5
+                    width: 2
+                    length: 10
+                    color: 0x404040
+                    label_gap: 10
+            widgets:
+              - label:
+                  id: temperature_text
+                  text: "-.-°C"
+                  align: CENTER
+                  y: 45
+              - label:
+                  text: "Outdoor"
+                  align: CENTER
+                  y: 65
+    - id: clock_page
+      widgets:
+        - obj: # clock container
+            height: SIZE_CONTENT
+            width: 240
+            align: CENTER
+            pad_all: 0
+            border_width: 0
+            bg_color: 0xFFFFFF
+            widgets:
+              - meter: # clock face
+                  height: 220
+                  width: 220
+                  align: CENTER
+                  bg_opa: TRANSP
+                  border_width: 0
+                  text_color: 0x000000
+                  scales:
+                    - range_from: 0 # minutes scale
+                      range_to: 60
+                      angle_range: 360
+                      rotation: 270
+                      ticks:
+                        width: 1
+                        count: 61
+                        length: 10
+                        color: 0x000000
+                      indicators:
+                        - line:
+                            id: minute_hand
+                            width: 3
+                            color: 0xa6a6a6
+                            r_mod: -4
+                            value: 0
+                    - range_from: 1 # hours scale for labels
+                      range_to: 12
+                      angle_range: 330
+                      rotation: 300
+                      ticks:
+                        width: 1
+                        count: 12
+                        length: 1
+                        major:
+                          stride: 1
+                          width: 4
+                          length: 10
+                          color: 0xC0C0C0
+                          label_gap: 12
+                    - range_from: 0 # hi-res hours scale for hand
+                      range_to: 720
+                      angle_range: 360
+                      rotation: 270
+                      ticks:
+                        count: 0
+                      indicators:
+                        - line:
+                            id: hour_hand
+                            width: 5
+                            color: 0xa6a6a6
+                            r_mod: -30
+                            value: 0
+              - label:
+                  styles: date_style
+                  id: day_label
+                  y: -30
+              - label:
+                  id: date_label
+                  styles: date_style
+                  y: 30
+    - id: weather_forecast
+      widgets:
+        - obj:
+            align: CENTER
+            width: 228
+            height: 250
+            pad_all: 10
+            layout:
+              pad_column: 0
+              type: GRID
+              grid_rows: [FR(48), FR(13), FR(13), FR(13), FR(13)]
+              grid_columns: [FR(10), FR(40), FR(40), FR(10)]
+            widgets:
+              - label:
+                  text: "\U000F14E4"
+                  id: lbl_weather_forecast_condition_icon
+                  text_font: icons_100
+                  text_align: CENTER
+                  grid_cell_row_pos: 0
+                  grid_cell_column_pos: 0
+                  grid_cell_column_span: 2
+                  grid_cell_x_align: CENTER
+                  grid_cell_y_align: START
+
+              - label:
+                  text: "Unknown"
+                  id: lbl_weather_forecast_condition_name
+                  text_align: CENTER
+                  grid_cell_row_pos: 0
+                  grid_cell_column_pos: 2
+                  grid_cell_column_span: 2
+                  grid_cell_x_align: STRETCH
+                  grid_cell_y_align: CENTER
+
+              - label:
+                  text: "Feels like:"
+                  grid_cell_row_pos: 1
+                  grid_cell_column_pos: 1
+
+              - label:
+                  text: "--.- °C"
+                  id: lbl_weather_forecast_tempap
+                  text_align: RIGHT
+                  grid_cell_row_pos: 1
+                  grid_cell_column_pos: 2
+                  grid_cell_x_align: STRETCH
+
+              - label:
+                  text: "Maximum:"
+                  grid_cell_row_pos: 2
+                  grid_cell_column_pos: 1
+
+              - label:
+                  text: "--.- °C"
+                  id: lbl_weather_forecast_temphi
+                  text_align: RIGHT
+                  grid_cell_row_pos: 2
+                  grid_cell_column_pos: 2
+                  grid_cell_x_align: STRETCH
+
+              - label:
+                  text: "Minimum:"
+                  grid_cell_row_pos: 3
+                  grid_cell_column_pos: 1
+
+              - label:
+                  text: "--.- °C"
+                  id: lbl_weather_forecast_templo
+                  text_align: RIGHT
+                  grid_cell_row_pos: 3
+                  grid_cell_column_pos: 2
+                  grid_cell_x_align: STRETCH
+
+              - label:
+                  text: "Now:"
+                  grid_cell_row_pos: 4
+                  grid_cell_column_pos: 1
+
+              - label:
+                  text: "--.- °C"
+                  id: lbl_weather_outdnoor_now
+                  text_align: RIGHT
+                  grid_cell_row_pos: 4
+                  grid_cell_column_pos: 2
+                  grid_cell_x_align: STRETCH
+
+    - id: main_page
+      widgets:
+        - obj:
+            align: TOP_MID
+            styles: header_footer
+            widgets:
+              - label:
+                  text: "ESPHome LVGL Display"
+                  align: CENTER
+                  text_align: CENTER
+                  text_color: 0xFFFFFF
+    - id: second_page
+      widgets:
+        - obj:
+            align: TOP_MID
+            styles: header_footer
+            widgets:
+              - label:
+                  text: "A second page"
+                  align: CENTER
+                  text_align: CENTER
+                  text_color: 0xFFFFFF
+    - id: third_page
+      widgets:
+        - obj:
+            align: TOP_MID
+            styles: header_footer
+            widgets:
+              - label:
+                  text: "A third page"
+                  align: CENTER
+                  text_align: CENTER
+                  text_color: 0xFFFFFF
+    - id: room_page
+      widgets:
+        - obj: # a properly placed coontainer object for all these controls
+            align: CENTER
+            width: 240
+            height: 256
+            x: 4
+            y: 4
+            pad_all: 3
+            pad_top: 6
+            pad_bottom: 8
+            bg_opa: TRANSP
+            border_opa: TRANSP
+            layout: # enable the FLEX layout for the children widgets
+              type: FLEX
+              flex_flow: COLUMN_WRAP # the order of the widgets starts top left
+              flex_align_cross: CENTER # they sould be centered
+            widgets:
+              - label:
+                  text: "East"
+              - button:
+                  id: but_cov_up_east
+                  width: 70 # choose the button dimensions so
+                  height: 68 # they fill the columns nincely as they flow
+                  widgets:
+                    - label:
+                        text_font: mdi_42
+                        id: cov_up_east
+                        align: CENTER
+                        text: "\U000F005D" # mdi:arrow-up
+              - button:
+                  id: but_cov_stop_east
+                  width: 70
+                  height: 68
+                  widgets:
+                    - label:
+                        text_font: mdi_42
+                        id: cov_stop_east
+                        align: CENTER
+                        text: "\U000F04DB" # mdi:stop
+              - button:
+                  id: but_cov_down_east
+                  width: 70
+                  height: 68
+                  widgets:
+                    - label:
+                        text_font: mdi_42
+                        id: cov_down_east
+                        align: CENTER
+                        text: "\U000F0045" # mdi:arrow-down
+
+              - label:
+                  text: "South"
+              - button:
+                  id: but_cov_up_south
+                  width: 70
+                  height: 68
+                  widgets:
+                    - label:
+                        id: cov_up_south
+                        align: CENTER
+                        text: "\U000F005D"
+              - button:
+                  id: but_cov_stop_south
+                  width: 70
+                  height: 68
+                  widgets:
+                    - label:
+                        id: cov_stop_south
+                        align: CENTER
+                        text: "\U000F04DB"
+              - button:
+                  id: but_cov_down_south
+                  width: 70
+                  height: 68
+                  widgets:
+                    - label:
+                        id: cov_down_south
+                        align: CENTER
+                        text: "\U000F0045"
+
+              - label:
+                  text: "West"
+              - button:
+                  id: but_cov_up_west
+                  width: 70
+                  height: 68
+                  widgets:
+                    - label:
+                        id: cov_up_west
+                        align: CENTER
+                        text: "\U000F005D"
+              - button:
+                  id: but_cov_stop_west
+                  width: 70
+                  height: 68
+                  widgets:
+                    - label:
+                        id: cov_stop_west
+                        align: CENTER
+                        text: "\U000F04DB"
+              - button:
+                  id: but_cov_down_west
+                  width: 70
+                  height: 68
+                  widgets:
+                    - label:
+                        id: cov_down_west
+                        align: CENTER
+                        text: "\U000F0045"
+#    - id: main_page
+      #width: 100%
+      #bg_color: 0x000000
+      #bg_opa: cover
+#      widgets:
+        # Example label
+#        - label:
+#            id: label_id
+#            text: "Text string"
+#        - checkbox:
+#            id: checkbox_id
+#            text: "\uF00C"  # Unicode check-mark
+        # Example slider with knob and indicator styling
+#        - slider:
+            # main (background) styles
+#            bg_opa: cover
+            #bg_grad: color_bar
+#            radius: 0
+#            indicator:
+#              bg_opa: transp    # Makes the indicator part invisible
+#            knob:
+#              radius: 1
+#              width: 4
+#              height: 10%
+#              bg_color: 0x000000
+#        - label:
+#            align: CENTER
+#            text: 'Hello World'
+#        - button:
+#            id: light_btn
+#            align: CENTER
+#            width: 100
+#            height: 70
+#            checkable: true
+#            widgets:
+#              - label:
+#                  align: CENTER
+#                  text: 'Christmas Tree'
+#            on_click:
+#              - homeassistant.action:
+#                  action: switch.toggle
+#                  data:
+#                    entity_id: switch.indoor_plug_3_socket_1
+#        - button:
+#            id: light_btn2
+#            width: 350
+#            height: 100
+#            checkable: true
+#            widgets:
+#              - label:
+#                  align: CENTER
+#                  text: 'Bsmnt Lights'
+#            on_click:
+#              - homeassistant.action:
+#                  action: light.turn_on
+#                  data:
+#                    entity_id: light.basement_main_lights
+
+#          - type: image
+#            x: 200
+#            y: 5
+#            image: esphome_image
+#          - type: label
+#            x: 100
+#            y: 200
+#            font: arimo12
+#            text: !lambda "return id(sntp_time).now().strftime(\"%Y-%m-%d\").c_str();"
+#          - type: label
+#            x: 40
+#            y: 220
+#            font: arimo12
+#            text: !lambda "return id(sntp_time).now().strftime(\"%H:%M\").c_str();"
+
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+touchscreen:
+  - platform: gt911
+    id: main_touchscreen
+    interrupt_pin: 3
+    reset_pin: 38
+#    reset_pin:
+#      ch422g:
+#      number: 1
+    on_touch:
+      - lambda: |-
+          ESP_LOGI("Touch", "Touch detected at x=%d, y=%d", touch.x, touch.y);
+      - light.turn_on: display_backlight
+      - lvgl.resume
+    on_release:
+      then:
+        - if:
+            condition: lvgl.is_paused
+            then:
+              - logger.log: "LVGL resuming"
+              - lvgl.resume:
+              - lvgl.widget.redraw:
+              - light.turn_on: display_backlight # Turn on backlight on touch
+
+number:
+  - platform: template
+    name: LVGL Screen timeout
+    optimistic: true
+    id: display_timeout
+    unit_of_measurement: "s"
+    initial_value: 45
+    restore_value: true
+    min_value: 10
+    max_value: 180
+    step: 5
+    mode: box
+
+
+text_sensor:
+  - platform: debug
+    device:
+      name: "Device Info"
+    reset_reason:
+      name: "Reset Reason"
+
+sensor:
+  - platform: debug
+    free:
+      name: "Heap Free"
+    block:
+      name: "Heap Max Block"
+    loop_time:
+      name: "Loop Time"
+    psram:
+      name: "Free PSRAM"
+#  - platform: homeassistant
+#    entity_id: sensor.basement_temperature
+#    name: bsmt_temp
+#    on_value:
+#      - lvgl.indicator.update:
+#          id: temperature_needle
+#          value: !lambda return x * 10;
+#      - lvgl.label.update:
+#          id: temperature_text
+#          text:
+#            format: "%.1f°C"
+#            args: [ 'x' ]
+
+# Wifi sensor that drives the UI signal strength icon
+  - platform: wifi_signal # Reports the WiFi signal strength in %
+    name: "WiFi Signal Percent"
+    filters:
+      - lambda: return min(max(2 * (x + 100.0), 0.0), 100.0);
+    unit_of_measurement: "Signal %"
+    id: wifi_signal_pct
+    update_interval: 60s
+    entity_category: "diagnostic"
+
+# Reports the WiFi signal strength/RSSI in dB
+  - platform: wifi_signal 
+    name: "WiFi Signal dB"
+    id: wifi_signal_db
+    update_interval: 60s
+    entity_category: "diagnostic"
+# Reports the WiFi signal strength in %
+  - platform: copy 
+    source_id: wifi_signal_db
+    name: "WiFi Signal Percent"
+    filters:
+      - lambda: return min(max(2 * (x + 100.0), 0.0), 100.0);
+    unit_of_measurement: "Signal %"
+    entity_category: "diagnostic"
+
+# Setup a script that can update the UI values independent of the display lambda
+# so that we're not trying to pull the WiFi signal strength every single frame
+script:
+  - id: update_ui_values
+    then:
+    - lambda: |-
+        if (isnan(id(wifi_signal_pct).state))
+            id(wifi_iconstring) = "󰤮"; // No-wifi
+        else if (id(wifi_signal_pct).state < 10)
+            id(wifi_iconstring) = "󰤟";  // low-wifi
+        else if (id(wifi_signal_pct).state < 30)
+            id(wifi_iconstring) = "󰤟"; // wifi-1
+        else if (id(wifi_signal_pct).state < 50)
+            id(wifi_iconstring) = "󰤢"; // wifi-2
+        else if (id(wifi_signal_pct).state < 75)
+            id(wifi_iconstring) = "󰤥"; // wifi-3
+        else
+            id(wifi_iconstring) = "󰤨"; // wifi-4
+
+  - id: time_update
+    then:
+      - lvgl.indicator.update:
+          id: minute_hand
+          value: !lambda |-
+            return id(time_comp).now().minute;
+      - lvgl.indicator.update:
+          id: hour_hand
+          value: !lambda |-
+            auto now = id(time_comp).now();
+            return std::fmod(now.hour, 12) * 60 + now.minute;
+      - lvgl.label.update:
+          id: date_label
+          text: !lambda |-
+            static const char * const mon_names[] = {"JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"};
+            static char date_buf[8];
+            auto now = id(time_comp).now();
+            snprintf(date_buf, sizeof(date_buf), "%s %2d", mon_names[now.month-1], now.day_of_month);
+            return date_buf;
+      - lvgl.label.update:
+          id: day_label
+          text: !lambda |-
+            static const char * const day_names[] = {"SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"};
+            return day_names[id(time_comp).now().day_of_week - 1];
+
+
+# Update the UI state every 10 seconds
+interval:
+  - interval: 10s
+    then:
+      - script.execute: update_ui_values
+
+# Loop trough all pages on the display
+#  - interval: 15s
+#    then:
+#      - display.page.show_next: my_display
+#      - component.update: my_display
+
+
+binary_sensor:
+  - platform: status
+    id: board_status
+    name: "$friendly_name Status"
+  - platform: status
+    name: Status sensor
+
+switch:
+  - platform: template
+    name: Antiburn
+    id: switch_antiburn
+    icon: mdi:television-shimmer
+    optimistic: true
+    entity_category: "config"
+    turn_on_action:
+      - logger.log: "Starting Antiburn"
+      - if:
+          condition: lvgl.is_paused
+          then:
+            - lvgl.resume:
+            - lvgl.widget.redraw:
+      - lvgl.pause:
+          show_snow: true
+    turn_off_action:
+      - logger.log: "Stopping Antiburn"
+      - if:
+          condition: lvgl.is_paused
+          then:
+            - lvgl.resume:
+            - lvgl.widget.redraw:
